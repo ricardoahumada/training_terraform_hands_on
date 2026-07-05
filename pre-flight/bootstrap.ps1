@@ -1,4 +1,4 @@
-# bootstrap.ps1 - Terraform Hands-on (MediaMarkt / GCP)
+﻿# bootstrap.ps1 - Terraform Hands-on (MediaMarkt / GCP)
 # Pre-flight setup antes del Modulo 1 (Windows PowerShell 5.1+).
 # Idempotente e interactivo.
 
@@ -56,7 +56,7 @@ Write-Info "Bucket state:   gs://$bucketName"
 Write-Info "Region / Zone:  $region / $zone"
 Write-Host ""
 Write-Warn "Si el Project ID ya existe en GCP, este script fallara."
-Write-Warn "Es un identificador UNICO A NIVEL MUNDIAL — elegi un sufijo que te identifique."
+Write-Warn "Es un identificador UNICO A NIVEL MUNDIAL ÔÇö elegi un sufijo que te identifique."
 $confirm = Read-Host "Continuar? [y/N]"
 if ($confirm -notin @('y','Y','yes','YES')) {
   Write-Info "Cancelado."
