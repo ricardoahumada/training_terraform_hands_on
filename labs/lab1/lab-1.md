@@ -1,6 +1,5 @@
 ﻿# Lab 1 — Backend GCS con locking
 
-> **Guion del formador** — Lab 100 % guiado. Cada alumno trabaja sobre su propio proyecto GCP de prueba.
 > **Duración estimada**: 25 minutos.
 > **Caso AppLocker**: sentar las bases del state remoto para que toda la infraestructura del curso viva bajo Terraform desde el primer minuto.
 
@@ -257,7 +256,6 @@ Debe devolver: `True True`
 
 # Lab 2 — Importar el bucket de state al control de Terraform
 
-> **Guion del formador** — Continuación del Lab 1.
 > **Duración estimada**: 30 minutos.
 > **Caso AppLocker**: meter el bucket "legacy" al estado de Terraform sin destruirlo.
 
@@ -468,7 +466,6 @@ gcloud storage buckets describe gs://$env:TF_STATE_BUCKET `
 
 # Lab 3 — Workspaces para AppLocker
 
-> **Guion del formador** — Cierre del Módulo 1.
 > **Duración estimada**: 25 minutos.
 > **Caso AppLocker**: demostrar el aislamiento de state entre `dev` y `prod` usando workspaces.
 

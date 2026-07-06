@@ -1,6 +1,5 @@
 # Lab 1 — Hardening de AppLocker
 
-> **Guion del formador** — Lab integrador del Módulo 4.
 > **Duración estimada**: 120 minutos.
 > **Caso AppLocker**: endurecer la arquitectura 3-tier desplegada en M3 con service accounts dedicadas, Secret Manager, labels obligatorios, backups con PITR y disciplina de drift detection.
 

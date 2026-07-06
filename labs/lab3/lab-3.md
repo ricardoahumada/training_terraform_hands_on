@@ -1,6 +1,5 @@
 # Lab 1 — Arquitectura 3-tier de AppLocker
 
-> **Guion del formador** — Lab integrador del Módulo 3.
 > **Duración estimada**: 165 minutos.
 > **Caso AppLocker**: desplegar VPC segmentada, MIG con autohealing y Cloud SQL privado con HA, consumiendo el módulo `cloudsql` publicado en el M2.
 

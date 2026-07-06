@@ -1,6 +1,5 @@
 # Lab 1 — Pipeline GitOps para AppLocker
 
-> **Guion del formador** — Lab integrador del Módulo 5.
 > **Duración estimada**: 75 minutos.
 > **Caso AppLocker**: cerrar el círculo de GitOps. Cualquier cambio a la infra pasa por PR, se valida, se planea, se valida con políticas OPA y se aplica con gate humano.
 

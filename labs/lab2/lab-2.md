@@ -1,6 +1,5 @@
 ﻿# Lab 1 — Detectar duplicación en `main.tf` del M1
 
-> **Mini-lab guiado** — Sirve de motivación para la sección de módulos.
 > **Duración estimada**: 5 minutos.
 > **Caso AppLocker**: ver con sus propios ojos por qué el bloque del bucket de state es candidato a módulo desde ya.
 
@@ -75,7 +74,6 @@ No hay recursos creados en este mini-lab.
 
 # Lab 2 — Crear el esqueleto del módulo `cloudsql` para AppLocker
 
-> **Guion del formador** — Lab guiado paso a paso.
 > **Duración estimada**: 15 minutos.
 > **Caso AppLocker**: construir la base del módulo que se publicará como v1.0.0 en el Lab 4 y se consumirá desde M3.
 
@@ -554,7 +552,6 @@ Remove-Item -Recurse -Force "$HOME\labs\m2-public-registry"
 
 # Lab 4 — Private Module Registry con GCS
 
-> **Guion del formador** — Cierra el Módulo 2.
 > **Duración estimada**: 15 minutos.
 > **Caso AppLocker**: publicar el módulo del Lab 2 como v1.0.0 en el bucket del M1 y consumirlo desde `envs/dev`.
 

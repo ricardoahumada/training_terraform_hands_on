@@ -1,6 +1,5 @@
 # Lab 1 — Migración zero-downtime de AppLocker
 
-> **Guion del formador** — Lab integrador del Módulo 6 y cierre del curso.
 > **Duración estimada**: 80 minutos.
 > **Caso AppLocker**: intercalar un tier de cache (Memorystore Redis) entre Middleware y Locker Management, **sin que AppLocker deje de responder ni un solo segundo**. Se aplica el patrón **replicar → validar → cutover → apagar**.
 
