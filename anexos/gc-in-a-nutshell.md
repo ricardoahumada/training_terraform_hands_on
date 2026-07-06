@@ -72,7 +72,7 @@ gcloud init                              # login + región/zone (solo la primera
 gcloud auth login                        # credenciales de usuario (navegador)
 
 gcloud auth application-default login    # ADC para Terraform local (M3+)
-gcloud auth application-default login --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email
+gcloud auth application-default login --scopes="https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/userinfo.email"
 
 gcloud config set project $PROJECT_ID    # fija el proyecto activo
 gcloud config set compute/region us-central1
