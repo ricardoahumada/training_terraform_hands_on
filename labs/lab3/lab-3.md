@@ -146,33 +146,32 @@ Reglas de firewall (por tags, no por IP):
 ## 4. Estructura de archivos del lab
 
 ```bash
-mkdir -p infra/envs/dev/{network,compute,cloudsql}
-cd infra/envs/dev
+mkdir -p infra/modules/{network,compute,cloudsql}
+cd infra/modules
 ```
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "infra\envs\dev\network","infra\envs\dev\compute","infra\envs\dev\cloudsql" | Out-Null
-Set-Location infra\envs\dev
+New-Item -ItemType Directory -Force -Path "infra\modules\network","infra\modules\compute","infra\modules\cloudsql" | Out-Null
+Set-Location infra\modules
 ```
 
 Estructura esperada al final:
 
 ```
 infra/
-└── envs/
-    └── dev/
-        ├── network/
-        │   ├── main.tf
-        │   ├── variables.tf
-        │   └── outputs.tf
-        ├── compute/
-        │   ├── main.tf
-        │   ├── variables.tf
-        │   └── outputs.tf
-        └── cloudsql/
-            ├── main.tf
-            ├── variables.tf
-            └── outputs.tf
+└── modules/
+    ├── network/
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    ├── compute/
+    │   ├── main.tf
+    │   ├── variables.tf
+    │   └── outputs.tf
+    └── cloudsql/
+        ├── main.tf
+        ├── variables.tf
+        └── outputs.tf
 ```
 
 
@@ -180,7 +179,7 @@ infra/
 
 ## 5. Parte 1 — VPC y subnets (~20 min)
 
-### 5.1 Crear `infra/envs/dev/network/variables.tf`
+### 5.1 Crear `infra/modules/network/variables.tf`
 
 ```hcl
 variable "project_id" {
@@ -198,7 +197,7 @@ variable "env" {
 }
 ```
 
-### 5.2 Crear `infra/envs/dev/network/main.tf`
+### 5.2 Crear `infra/modules/network/main.tf`
 
 ```hcl
 terraform {
@@ -271,7 +270,7 @@ resource "google_compute_subnetwork" "data" {
 }
 ```
 
-### 5.3 Crear `infra/envs/dev/network/outputs.tf`
+### 5.3 Crear `infra/modules/network/outputs.tf`
 
 ```hcl
 output "vpc_self_link" {
@@ -294,13 +293,13 @@ output "subnet_self_links" {
 
 ### 5.4 Crear el backend remoto
 
-`backend.tf` en `infra/envs/dev/network/`:
+`backend.tf` en `infra/modules/network/`:
 
 ```hcl
 terraform {
   backend "gcs" {
     bucket = "applocker-tf-state-<sufijo>"
-    prefix = "envs/dev/network"
+    prefix = "modules/network"
   }
 }
 ```
@@ -308,7 +307,7 @@ terraform {
 ### 5.5 Aplicar
 
 ```bash
-cd infra/envs/dev/network
+cd infra/modules/network
 
 terraform init
 terraform plan
@@ -321,7 +320,7 @@ Verificar en consola: `VPC Network → VPC networks → applocker-vpc-dev`.
 
 ## 6. Parte 2 — Cloud Router + Cloud NAT (~15 min)
 
-### 6.1 Añadir a `infra/envs/dev/network/main.tf`
+### 6.1 Añadir a `infra/modules/network/main.tf`
 
 ```hcl
 # --- Cloud Router + Cloud NAT ---
@@ -371,7 +370,7 @@ gcloud compute routers nats list `
 
 ## 7. Parte 3 — Reglas de firewall segmentadas por tags (~15 min)
 
-### 7.1 Añadir a `infra/envs/dev/network/main.tf`
+### 7.1 Añadir a `infra/modules/network/main.tf`
 
 ```hcl
 # --- Reglas de firewall por tags (zero-trust) ---
@@ -453,7 +452,7 @@ gcloud compute firewall-rules list --filter="network=applocker-vpc-$env:TF_VAR_e
 
 ## 8. Parte 4 — Instance template para el backend (~15 min)
 
-### 8.1 Crear `infra/envs/dev/compute/variables.tf`
+### 8.1 Crear `infra/modules/compute/variables.tf`
 
 ```hcl
 variable "project_id" { type = string }
@@ -469,7 +468,7 @@ variable "subnet_app_self_link" {
 }
 ```
 
-### 8.2 Crear `infra/envs/dev/compute/main.tf`
+### 8.2 Crear `infra/modules/compute/main.tf`
 
 ```hcl
 terraform {
@@ -483,7 +482,7 @@ terraform {
 
   backend "gcs" {
     bucket = "applocker-tf-state-<sufijo>"
-    prefix = "envs/dev/compute"
+    prefix = "modules/compute"
   }
 }
 
@@ -505,7 +504,7 @@ data "terraform_remote_state" "network" {
   backend = "gcs"
   config = {
     bucket = "applocker-tf-state-<sufijo>"
-    prefix = "envs/dev/network"
+    prefix = "modules/network"
   }
 }
 
@@ -616,7 +615,7 @@ output "app_mig_instances" {
 ### 8.4 Aplicar
 
 ```bash
-cd infra/envs/dev/compute
+cd infra/modules/compute
 
 terraform init
 terraform plan
@@ -692,7 +691,7 @@ El MIG debe haber recreado la VM con un nombre distinto. La instancia vieja ya n
 
 ### 10.1 Crear el peering con services
 
-Añadir a `infra/envs/dev/network/main.tf`:
+Añadir a `infra/modules/network/main.tf`:
 
 ```hcl
 # --- Peering con services (Cloud SQL private IP) ---
@@ -715,12 +714,6 @@ resource "google_service_networking_connection" "private_vpc" {
 Aplicar:
 
 ```bash
-cd infra/envs/dev/network
-terraform apply
-```
-
-```powershell
-Set-Location infra\envs\dev\network
 terraform apply
 ```
 
@@ -769,7 +762,7 @@ if ($LASTEXITCODE -eq 0 -and $versionInfo) {
 }
 ```
 
-### 10.2 Crear `infra/envs/dev/cloudsql/`
+### 10.2 Crear `infra/modules/cloudsql/`
 
 > 📌 **Contexto**: el `main.tf` de este subproyecto consume el módulo `cloudsql@1.0.0` publicado en M2. Ese módulo lee el password desde Secret Manager (precondición que acabas de resolver en 10.1.1). En M4 esto se automatiza con `v1.1.0`.
 
@@ -805,7 +798,7 @@ terraform {
 
   backend "gcs" {
     bucket = "applocker-tf-state-<sufijo>"
-    prefix = "envs/dev/cloudsql"
+    prefix = "modules/cloudsql"
   }
 }
 
@@ -827,7 +820,7 @@ data "terraform_remote_state" "network" {
   backend = "gcs"
   config = {
     bucket = "applocker-tf-state-<sufijo>"
-    prefix = "envs/dev/network"
+    prefix = "modules/network"
   }
 }
 
@@ -877,7 +870,7 @@ output "cloudsql_self_link" {
 ### 10.3 Aplicar
 
 ```bash
-cd infra/envs/dev/cloudsql
+cd infra/modules/cloudsql
 terraform init -upgrade
 terraform plan
 terraform apply
@@ -909,7 +902,7 @@ RUNNABLE us-central1 REGIONAL 10.10.50.x
 
 ```bash
 # En cada subproyecto
-for d in infra/envs/dev/network infra/envs/dev/compute infra/envs/dev/cloudsql; do
+for d in infra/modules/network infra/modules/compute infra/modules/cloudsql; do
   echo "=== $d ==="
   (cd $d && terraform plan)
 done
@@ -917,7 +910,7 @@ done
 
 ```powershell
 # En cada subproyecto
-$d = "infra\envs\dev\network","infra\envs\dev\compute","infra\envs\dev\cloudsql"
+$d = "infra\modules\network","infra\modules\compute","infra\modules\cloudsql"
 foreach ($dir in $d) {
   Write-Host "=== $dir ==="
   Push-Location $dir
@@ -931,13 +924,13 @@ Todos deben devolver: `No changes. Your infrastructure matches the configuration
 ### 11.2 Inspeccionar los outputs
 
 ```bash
-cd infra/envs/dev/network && terraform output -json | jq .
+cd infra/modules/network && terraform output -json | jq .
 cd ../compute && terraform output -json | jq .
 cd ../cloudsql && terraform output -json | jq .
 ```
 
 ```powershell
-Set-Location infra\envs\dev\network; terraform output -json | ConvertFrom-Json
+Set-Location infra\modules\network; terraform output -json | ConvertFrom-Json
 Set-Location ..\compute; terraform output -json | ConvertFrom-Json
 Set-Location ..\cloudsql; terraform output -json | ConvertFrom-Json
 ```
@@ -953,7 +946,7 @@ Deben aparecer al menos:
 
 ```bash
 # Obtener la IP privada de Cloud SQL
-CLOUDSQL_IP=$(cd infra/envs/dev/cloudsql && terraform output -raw cloudsql_private_ip)
+CLOUDSQL_IP=$(cd infra/modules/cloudsql && terraform output -raw cloudsql_private_ip)
 
 # Obtener el nombre de una VM del MIG
 VM_NAME=$(gcloud compute instance-groups list-instances applocker-app-mig-${TF_VAR_env} \
@@ -967,7 +960,7 @@ gcloud compute ssh $VM_NAME \
 
 ```powershell
 # Obtener la IP privada de Cloud SQL
-Push-Location infra\envs\dev\cloudsql
+Push-Location infra\modules\cloudsql
 $CLOUDSQL_IP = terraform output -raw cloudsql_private_ip
 Pop-Location
 
@@ -1035,14 +1028,14 @@ Lo único que se elimina (si el formador lo pide) son los archivos locales `*.tf
 
 ```bash
 # Solo si el formador lo pide
-for d in infra/envs/dev/network infra/envs/dev/compute infra/envs/dev/cloudsql; do
+for d in infra/modules/network infra/modules/compute infra/modules/cloudsql; do
   rm -rf $d/.terraform $d/*.tfstate*
 done
 ```
 
 ```powershell
 # Solo si el formador lo pide
-$d = "infra\envs\dev\network","infra\envs\dev\compute","infra\envs\dev\cloudsql"
+$d = "infra\modules\network","infra\modules\compute","infra\modules\cloudsql"
 foreach ($dir in $d) {
   Remove-Item -Recurse -Force "$dir\.terraform" -ErrorAction SilentlyContinue
   Get-ChildItem "$dir\*.tfstate*" -ErrorAction SilentlyContinue | Remove-Item -Force
@@ -1066,6 +1059,13 @@ gcloud compute instances list `
 gcloud sql instances list --filter="name:applocker-db-*"
 ```
 
+Si se quiere destruir por completo:
+1. Acceder a cada módulo y hacer `terrafprm destroy`
+2. Eliminar el secreto: 
+
+```bash
+gcloud secrets delete applocker-db-password --project="${TF_VAR_project_id}" --quiet
+```
 
 ### 12.1 Commit del lab en Git
 

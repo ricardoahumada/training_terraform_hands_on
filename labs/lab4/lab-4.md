@@ -49,17 +49,17 @@ Write-Host "$($env:TF_STATE_BUCKET) | $($env:TF_VAR_project_id) | $($env:TF_VAR_
 
 ### 1.1 Resto de prerrequisitos
 
-- Repositorio del M3 intacto en `infra/envs/dev` con la raíz del proyecto AppLocker.
-- State remoto del M1 funcionando en `gs://applocker-tf-state-<sufijo>`. El aislamiento por entorno se hace por **prefijo GCS** (`envs/dev/network`, `envs/dev/compute`, `envs/dev/cloudsql`, `envs/dev/root`), **no por workspaces de Terraform** — los workspaces se reservaron para `infra/state/` del M1.
+- Repositorio del M3 intacto en `infra/modules` con la raíz del proyecto AppLocker.
+- State remoto del M1 funcionando en `gs://applocker-tf-state-<sufijo>`. El aislamiento por entorno se hace por **prefijo GCS** (`envs/dev/network`, `envs/dev/compute`, `modules/cloudsql`, `envs/dev/root`), **no por workspaces de Terraform** — los workspaces se reservaron para `infra/state/` del M1.
 - Permisos necesarios en el proyecto:
   - `roles/iam.serviceAccountAdmin`
   - `roles/secretmanager.admin`
   - `roles/billing.admin` (solo para crear el budget, opcional en este lab)
-  - **`roles/iam.serviceAccountTokenCreator` sobre la SA `sa-applocker-app-${env}`** aplicado al usuario humano que ejecuta el smoke test (necesario para el §9.5; sin este binding, la impersonation falla con `Permission 'iam.serviceAccounts.getAccessToken' denied`). Se concede con:
+  - **`roles/iam.serviceAccountTokenCreator` sobre la SA `sa-app-${env}-${suffix}`** aplicado al usuario humano que ejecuta el smoke test (necesario para el §9.5; sin este binding, la impersonation falla con `Permission 'iam.serviceAccounts.getAccessToken' denied`). Se concede con:
     
     ```bash
     gcloud iam service-accounts add-iam-policy-binding \
-      "sa-applocker-app-${TF_VAR_env}@${TF_VAR_project_id}.iam.gserviceaccount.com" \
+      "sa-app-${TF_VAR_env}-${TF_VAR_suffix}@${TF_VAR_project_id}.iam.gserviceaccount.com" \
       --project=${TF_VAR_project_id} \
       --role="roles/iam.serviceAccountTokenCreator" \
       --member="user:<EMAIL_DEL_ALUMNO>"
@@ -67,7 +67,7 @@ Write-Host "$($env:TF_STATE_BUCKET) | $($env:TF_VAR_project_id) | $($env:TF_VAR_
 
     ```powershell
     gcloud iam service-accounts add-iam-policy-binding `
-      "sa-applocker-app-$env:TF_VAR_env@$env:TF_VAR_project_id.iam.gserviceaccount.com" `
+      "sa-app-$env:TF_VAR_env-$env:TF_VAR_suffix@$env:TF_VAR_project_id.iam.gserviceaccount.com" `
       --project=$env:TF_VAR_project_id `
       --role="roles/iam.serviceAccountTokenCreator" `
       --member="user:<EMAIL_DEL_ALUMNO>"
@@ -104,7 +104,7 @@ En M4 **no se crea infraestructura nueva de red ni de cómputo**: se **endurece*
 
 ## 3. Recursos necesarios
 
-- 1 service account (`sa-applocker-app-${env}`) para el único MIG existente en el lab-3 (`applocker-app-mig`).
+- 1 service account (`sa-app-${env}-${suffix}`) para el único MIG existente en el lab-3 (`applocker-app-mig`).
 - 4 `google_project_iam_member` para asignar roles predefined: `logging.logWriter`, `monitoring.metricWriter`, `cloudsql.client`, `secretmanager.secretAccessor`.
 - 1 import a state de un secreto existente en Secret Manager (`applocker-db-password`, creado en el lab-3 §10.1.1).
 - 1 `google_sql_user` para AppLocker (`applocker_app`).
@@ -118,17 +118,24 @@ En M4 **no se crea infraestructura nueva de red ni de cómputo**: se **endurece*
 
 ```
 infra/
-├── envs/dev/
-│   ├── main.tf
-│   ├── locals.tf          ← nuevos labels comunes
-│   ├── secrets.tf         ← nuevo: secreto + user de Cloud SQL
-│   ├── network/
-│   ├── compute/
-│   ├── cloudsql/
-│   └── modules/iam/       ← nuevo módulo introducido en M4
+├── envs/
+│   └── dev/
+│       ├── backend.tf
+│       ├── locals.tf          ← nuevos labels comunes
 │       ├── main.tf
-│       ├── variables.tf
-│       └── outputs.tf
+│       ├── outputs.tf
+│       ├── secrets.tf         ← nuevo: secreto + user de Cloud SQL
+│       ├── terraform.tfvars
+│       └── variables.tf
+└── modules/
+    ├── cloudsql/
+    ├── compute/
+    ├── iam/                   ← nuevo módulo introducido en M4
+    │   ├── main.tf
+    │   ├── outputs.tf
+    │   └── variables.tf
+    └── network/
+        
 ```
 
 ---
@@ -240,13 +247,13 @@ Get-ChildItem infra\envs\dev\backend.tf, infra\envs\dev\variables.tf, infra\envs
 ### 5.1 Crear la estructura del módulo IAM
 
 ```bash
-mkdir -p infra/envs/dev/modules/iam
-cd infra/envs/dev/modules/iam
+mkdir -p infra/modules/iam
+cd infra/modules/iam
 ```
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "infra\envs\dev\modules\iam" | Out-Null
-Set-Location infra\envs\dev\modules\iam
+New-Item -ItemType Directory -Force -Path "infra\modules\iam" | Out-Null
+Set-Location infra\modules\iam
 ```
 
 ### 5.2 `variables.tf` (del módulo `iam`)
@@ -287,8 +294,8 @@ locals {
 # --- Service account dedicada para el MIG `app` ---
 
 resource "google_service_account" "app" {
-  account_id   = "sa-applocker-app-${var.env}"
-  display_name = "AppLocker App (${var.env})"
+  account_id   = "sa-app-${var.env}-${var.sufijo}"
+  display_name = "AppLocker App (${var.env}-${var.sufijo})"
   description  = "SA dedicada al tier app del entorno ${var.env} (MIG del lab-3)."
   project      = var.project_id
 }
@@ -358,6 +365,8 @@ output "app_service_account_member" {
 ### 5.5 Declarar el `module "iam"` en `infra/envs/dev/main.tf`
 
 > **Por qué va aquí y no en 5.4**: `terraform apply -target=module.iam` solo funciona si en `infra/envs/dev/` existe un bloque `module "iam"` que instancie el módulo que acabamos de crear. Sin él, el apply falla con `module not found`. Hay que crear `main.tf` en el root **antes** del primer apply.
+>
+> **Path del módulo**: el módulo vive en `infra/modules/iam/` (NO en `infra/envs/dev/modules/iam/`). Como el root está en `infra/envs/dev/`, el `source` relativo es `"../../modules/iam"`.
 
 `infra/envs/dev/main.tf`:
 
@@ -365,10 +374,11 @@ output "app_service_account_member" {
 # --- Composición del environment root ---
 
 module "iam" {
-  source = "./modules/iam"
+  source = "../../modules/iam"
 
   project_id = var.project_id
   env        = var.env
+  sufijo = "<sufijo>"
 }
 
 # Los siguientes módulos se referencian desde sus propios archivos
@@ -392,36 +402,36 @@ Verificar:
 ```bash
 gcloud iam service-accounts list \
   --project=${TF_VAR_project_id} \
-  --filter="email~'sa-applocker-app-${TF_VAR_env}'" \
+  --filter="email~'sa-app-*'" \
   --format="table(email,displayName)"
 ```
 
 ```powershell
 gcloud iam service-accounts list `
   --project=$env:TF_VAR_project_id `
-  --filter="email~'sa-applocker-app-$env:TF_VAR_env'" `
+  --filter="email~'sa-app-*'" `
   --format="table(email,displayName)"
 ```
 
-Debe devolver la SA `sa-applocker-app-dev`.
+Debe devolver la SA `sa-app-dev-<sufijo>`.
 
 ### 5.7 Verificar los bindings IAM
 
 ```bash
 gcloud projects get-iam-policy ${TF_VAR_project_id} \
   --flatten="bindings[].members" \
-  --filter="bindings.members:serviceAccount:sa-applocker-app-${TF_VAR_env}@" \
+  --filter="bindings.members:serviceAccount:sa-app-*" \
   --format="table(bindings.role)"
 ```
 
 ```powershell
 gcloud projects get-iam-policy $env:TF_VAR_project_id `
   --flatten="bindings[].members" `
-  --filter="bindings.members:serviceAccount:sa-applocker-app-$env:TF_VAR_env@" `
+  --filter="bindings.members:serviceAccount:sa-app-*" `
   --format="table(bindings.role)"
 ```
 
-Salida esperada (4 roles para `sa-applocker-app-${env}`):
+Salida esperada (4 roles para `sa-app-${env}-${var.sufijo}`):
 
 - `roles/logging.logWriter`
 - `roles/monitoring.metricWriter`
@@ -438,7 +448,7 @@ Salida esperada (4 roles para `sa-applocker-app-${env}`):
 
 > **Aclaración de naming (importante)**: el `resource "google_compute_instance_template" "backend"` se llama así en el lab-3 (es el plano del MIG `applocker-app-mig`), pero el **valor del label `tier`, el tag de red y el `module.iam.service_accounts[...]` que usaremos es `app`**, no `backend`. Mantener ambos nombres en la cabeza.
 
-En `infra/envs/dev/compute/main.tf`, añadir el bloque `service_account` al instance template:
+En `infra/modules/compute/main.tf`, añadir el bloque `service_account` al instance template:
 
 ```hcl
 # --- Remote state del root M4 (M4 introduce la SA dedicada) ---
@@ -472,7 +482,7 @@ resource "google_compute_instance_template" "backend" {  # nombre interno del re
 > **`compute/` sigue siendo su propio sub-stack** (state en `gs://.../envs/dev/compute/`). La edición se aplica desde su directorio, **no** desde el root.
 
 ```bash
-cd infra/envs/dev/compute
+cd infra/modules/compute
 terraform apply
 ```
 
@@ -481,13 +491,13 @@ terraform apply
 Verificar:
 
 ```bash
-gcloud compute instance-groups managed list-instances applocker-app-mig-${TF_VAR_env} \
+gcloud compute instance-groups managed list-instances applocker-app-mig-${TF_VAR_env}-${TF_VAR_suffix} \
   --region=${TF_VAR_region}
 ```
 
 ```powershell
-gcloud compute instance-groups managed list-instances applocker-app-mig-$env:TF_VAR_env `
-  --region=$env:TF_VAR_region
+gcloud compute instance-groups managed list-instances applocker-app-mig-$env:TF_VAR_env-$env:TF_VAR_suffix `
+--zone=us-central1-a
 ```
 
 ---
@@ -537,6 +547,7 @@ resource "google_secret_manager_secret" "db_password" {
 > ```bash
 > cd infra/envs/dev && terraform state list | grep module.iam
 > ```
+>
 > ```powershell
 > Set-Location infra\envs\dev; terraform state list | Select-String module.iam
 > ```
@@ -568,18 +579,7 @@ terraform import google_secret_manager_secret.db_password `
 
 #### 7.2.0 Prerrequisito: añadir `cloudsql_instance_name` al output del sub-stack `cloudsql/`
 
-> **Trampa típica ya documentada en la sesión del curso**: si se usa directamente `cloudsql_connection_name` como `instance` del `google_sql_user`, GCP rechaza la llamada con:
->
-> ```text
-> Error 400: Invalid full instance name
->   (mediamarkt-...:mediamarkt-...:us-central1:applocker-db-dev)
-> ```
->
-> ¿Por qué? `connection_name` vale `project:region:instance` (formato para clientes Cloud SQL Proxy), y la API de `google_sql_user.instance` añade OTRO prefijo `project:` delante (porque ya recibe `project = var.project_id`). El resultado es un nombre con dos project-id concatenados: inválido.
->
-> Solución: el módulo `cloudsql@1.0.0` ya expone `instance_name` como output. Basta **reexponerlo** desde el sub-stack `cloudsql/outputs.tf` con un nombre legible para el root, y usarlo en `secrets.tf`.
-
-Editar `infra/envs/dev/cloudsql/outputs.tf` y añadir al final:
+Editar `infra/modules/cloudsql/outputs.tf` y añadir al final:
 
 ```hcl
 # Añadido en M4: exponer el nombre simple de la instancia para que
@@ -592,7 +592,15 @@ output "cloudsql_instance_name" {
 }
 ```
 
-> **Importante**: tras añadir este output, el `terraform apply` para publicarlo se hace al **inicio de §7.3** (no aquí). Hacerlo aquí, antes de que el root pueda leerlo, es seguro pero genera una salida de consola que parece "suelta" para el alumno. Lo movemos a §7.3 donde encaja con el resto de la secuencia de apply.
+Aplicar:
+
+```bash
+# 1. cloudsql/: publica el output cloudsql_instance_name añadido en §7.2.0.
+#    El plan no debería proponer NADA (solo es un output nuevo en el state,
+#    no se crean recursos en GCP).
+cd infra/modules/cloudsql
+terraform apply
+```
 
 #### 7.2.1 Editar `infra/envs/dev/secrets.tf` para añadir los bloques pendientes
 
@@ -622,7 +630,7 @@ data "google_secret_manager_secret_version" "db_password" {
 }
 
 # --- Remote state del sub-stack cloudsql/ (lab-3) para leer su instance_name ---
-# El módulo `cloudsql` se consume en `infra/envs/dev/cloudsql/main.tf`, NO en el
+# El módulo `cloudsql` se consume en `infra/modules/cloudsql/main.tf`, NO en el
 # root. Aquí leemos sus outputs por remote_state. Los outputs del sub-stack son:
 #   - cloudsql_connection_name   (project:region:name, NO usar en `google_sql_user.instance`)
 #   - cloudsql_private_ip
@@ -635,7 +643,7 @@ data "terraform_remote_state" "cloudsql" {
   backend = "gcs"
   config = {
     bucket = "applocker-tf-state-<sufijo>"
-    prefix = "envs/dev/cloudsql"
+    prefix = "modules/cloudsql"
   }
 }
 
@@ -659,26 +667,9 @@ resource "google_sql_user" "applocker_app" {
 > **Prerrequisito de orden**: la Parte 1 (módulo `iam`) tiene que estar aplicada en el state del root. Verificar con `terraform state list | grep module.iam` desde `infra/envs/dev`. Si falta, vuelve a §5.6 antes de continuar.
 
 ```bash
-# 1. cloudsql/: publica el output cloudsql_instance_name añadido en §7.2.0.
-#    El plan no debería proponer NADA (solo es un output nuevo en el state,
-#    no se crean recursos en GCP).
-cd infra/envs/dev/cloudsql
-terraform apply
-
 # 2. root: registra el secreto importado, aplica sus labels
 #    y crea el user de Cloud SQL.
 cd ..
-terraform apply
-```
-
-```powershell
-# 1. cloudsql/: publica el output cloudsql_instance_name añadido en §7.2.0.
-Set-Location infra\envs\dev\cloudsql
-terraform apply
-
-# 2. root: registra el secreto importado, aplica sus labels
-#    y crea el user de Cloud SQL.
-Set-Location ..
 terraform apply
 ```
 
@@ -697,7 +688,7 @@ gcloud secrets describe applocker-db-password \
 # 3. El user de Cloud SQL está creado
 gcloud sql users list \
   --instance=applocker-db-${TF_VAR_env} \
-  --project=${TF_VAR_project_id} \
+  --project=${TF_VAR_project_id}-${TF_VAR_suffix} \
   --format="table(name,type)"
 ```
 
@@ -713,7 +704,7 @@ gcloud secrets describe applocker-db-password `
 
 # 3. El user de Cloud SQL está creado
 gcloud sql users list `
-  --instance=applocker-db-$env:TF_VAR_env `
+  --instance=applocker-db-$env:TF_VAR_env-$env:TF_VAR_suffix `
   --project=$env:TF_VAR_project_id `
   --format="table(name,type)"
 ```
@@ -726,18 +717,7 @@ gcloud sql users list `
 
 > ⚠️ **Trampa silenciosa**: el `local.common_labels` **solo existe en el root** (`infra/envs/dev/locals.tf` creado en §5.0.3). En `network/`, `compute/` y `cloudsql/` **NO existe** porque en lab-3 cada subproyecto tenía su `default_labels = { ... }` literal en el provider, sin pasar por `locals`.
 
-> Se deben exporer como outputs para que sean accesibles desde los módulos internos:
-
-En `infra/envs/dev/main.tf`, añadir
-
-```hcl
-# --- Outputs ---
-
-output "common_labels" {
-  value       = local.common_labels
-  description = "Labels comunes aplicados a todos los recursos del entorno."
-}
-```
+> Se deben exporer como outputs para que sean accesibles desde los módulos internos
 
 #### Un solo `locals` compartido vía remote_state del root
 
@@ -753,7 +733,7 @@ output "common_labels" {
 }
 ```
 
-En `infra/envs/dev/compute/main.tf`, añadir al `locals { ... }` existente (NO crear un locals nuevo):
+En `infra/modules/compute/main.tf`, añadir al `locals { ... }` existente (NO crear un locals nuevo):
 
 ```hcl
 locals {
@@ -844,13 +824,14 @@ terraform output common_labels > /dev/null \
   || { echo "ERROR: output common_labels no existe en el root"; exit 1; }
 
 # 2. Sub-stacks: cada uno lee los labels comunes del root.
-cd compute
+cd ../../compute
 terraform apply
+
 cd ../cloudsql
 terraform apply
 
 # 3. Root: re-aplicar para sincronizar (no debería proponer nada nuevo).
-cd ..
+cd ../../envs/dev
 terraform apply
 ```
 
@@ -868,13 +849,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # 2. Sub-stacks
-Set-Location compute
+Set-Location ..\..\compute
 terraform apply
 Set-Location ..\cloudsql
 terraform apply
 
 # 3. Root
-Set-Location ..
+Set-Location ..\..\envs\dev
 terraform apply
 ```
 
@@ -900,15 +881,13 @@ Debe devolver las 2 VMs del MIG con los 6 labels visibles.
 
 ### 8.4 Snapshot schedule para los discos del MIG (~5 min)
 
-> **Por qué va aquí**: los snapshots de disco son un recurso que **sí** gestionamos desde Terraform (no dependen del módulo externo `cloudsql`) y **sí** se beneficia del `local.common_labels` que acabamos de publicar. Cerrar §8 con este bloque deja la Parte 4 completa (labels + recurso transversal de backup).
-
-En `infra/envs/dev/compute/main.tf`, al final del archivo:
+En `infra/modules/compute/main.tf`, al final del archivo:
 
 ```hcl
 resource "google_compute_resource_policy" "backend_snapshot" {
   project = var.project_id
   region  = var.region
-  name    = "applocker-backend-snap-${var.env}"
+  name    = "applocker-backend-snap-${var.env}-${var.sufijo}"
 
   snapshot_schedule_policy {
     schedule {
@@ -937,10 +916,6 @@ Aplicar:
 terraform apply
 ```
 
-```powershell
-terraform apply
-```
-
 > **Trampa común — el bucket de snapshots no aparece**: `local.common_labels` no existe en `compute/main.tf` si no añadiste la línea de §8.1.3 (`common_labels = data.terraform_remote_state.root.outputs.common_labels`). Si Terraform dice "Reference to undeclared resource" o "Unsupported attribute", vuelve a §8.1.3.
 
 ---
@@ -951,12 +926,6 @@ terraform apply
 
 ```bash
 cd infra/envs/dev
-terraform fmt -recursive
-terraform validate
-```
-
-```powershell
-Set-Location infra\envs\dev
 terraform fmt -recursive
 terraform validate
 ```
@@ -977,10 +946,10 @@ terraform apply hardening.tfplan
 
 ### 9.4 Smoke test de drift
 
-> **Importante**: este comando **debe ejecutarse en cada sub-stack por separado**, porque cada uno tiene su propio state remoto (root, `compute/`, `cloudsql/`). Si solo se ejecuta desde el root, NO verá el estado real de las VMs ni de Cloud SQL, y dará un falso `Exit code 0`.
+> **Importante**: este comando **debe ejecutarse en cada sub-stack por separado**, porque cada uno tiene su propio state remoto (root, `compute/`, `cloudsql/`). Si solo se ejecuta desde el root, NO se verá el estado real de las VMs ni de Cloud SQL, y dará un falso `Exit code 0`.
 
 ```bash
-for d in infra/envs/dev infra/envs/dev/compute infra/envs/dev/cloudsql; do
+for d in infra/envs/dev infra/modules/compute infra/modules/cloudsql; do
   echo "=== $d ==="
   (cd "$d" && terraform plan -detailed-exitcode -input=false)
   echo "Exit code: $?"
@@ -988,7 +957,7 @@ done
 ```
 
 ```powershell
-$d = "infra\envs\dev","infra\envs\dev\compute","infra\envs\dev\cloudsql"
+$d = "infra\envs\dev","infra\modules\compute","infra\modules\cloudsql"
 foreach ($dir in $d) {
   Write-Host "=== $dir ==="
   Push-Location $dir
@@ -1008,7 +977,7 @@ Exit code: 0
 
 ### 9.5 Smoke test de identidad
 
-Como solo existe 1 SA (`sa-applocker-app-${env}`), el smoke test es **positivo para esa SA** y **negativo creando una SA ad-hoc sin `secretAccessor`**, para demostrar que el binding sí está limitando el acceso (no es que "cualquiera pueda leer el secreto").
+Como solo existe 1 SA (`sa-app-${env}-${suffix}`), el smoke test es **positivo para esa SA** y **negativo creando una SA ad-hoc sin `secretAccessor`**, para demostrar que el binding sí está limitando el acceso (no es que "cualquiera pueda leer el secreto").
 
 
 ```bash
@@ -1018,7 +987,7 @@ Como solo existe 1 SA (`sa-applocker-app-${env}`), el smoke test es **positivo p
 gcloud secrets versions access latest \
   --secret=applocker-db-password \
   --project=${TF_VAR_project_id} \
-  --impersonate-service-account=sa-applocker-app-${TF_VAR_env}@${TF_VAR_project_id}.iam.gserviceaccount.com
+  --impersonate-service-account=sa-app-*@${TF_VAR_project_id}.iam.gserviceaccount.com
 # Debe devolver la password sin error (no debe decir "Permission denied")
 
 # --- Caso negativo: una SA cualquiera SIN binding secretAccessor debe FALLAR ---
@@ -1046,7 +1015,7 @@ gcloud iam service-accounts delete sa-applocker-smoke-test@${TF_VAR_project_id}.
 gcloud secrets versions access latest `
   --secret=applocker-db-password `
   --project=$env:TF_VAR_project_id `
-  --impersonate-service-account="sa-applocker-app-$env:TF_VAR_env@$env:TF_VAR_project_id.iam.gserviceaccount.com"
+  --impersonate-service-account="sa-app-$env:TF_VAR_env-$env:TF_VAR_suffix@$env:TF_VAR_project_id.iam.gserviceaccount.com"
 # Debe devolver la password sin error (no debe decir "Permission denied")
 
 # --- Caso negativo: una SA cualquiera SIN binding secretAccessor debe FALLAR ---
@@ -1087,7 +1056,7 @@ gcloud compute instances list `
 
 Si devuelve VMs, falta algún label. Revisar los `default_labels` del provider y los `labels` de los recursos.
 
-### 9.7 Verificar el secreto en el plan (no debe aparecer en claro)
+### 9.7 Verificar el secreto en el plan root (no debe aparecer en claro)
 
 ```bash
 terraform output -json | jq .
@@ -1141,13 +1110,49 @@ Pasos a nivel de **consola** (sí se pueden ejecutar):
 
 Dejar el workspace `dev` activo para M5.
 
+----
+
+Si se quiere destruir toda la infra:
+
+```powershell
+$env:TF_VAR_project_id = (gcloud config get-value project)
+$env:TF_VAR_env        = "dev"
+
+# 1. Sub-stacks primero (lo que ellos crearon)
+Set-Location infra\modules\cloudsql
+terraform destroy -auto-approve
+
+# 2. compute: aquí está la resource_policy de snapshots del M4.
+#    Primero el schedule solo, luego el resto, por dependencias.
+Set-Location ..\compute
+terraform destroy -target=google_compute_resource_policy.backend_snapshot -auto-approve
+terraform destroy -auto-approve
+
+# 3. network (M3)
+Set-Location ..\network
+terraform destroy -auto-approve
+
+# 4. Módulo iam (necesita su propio init/destroy porque tiene su propio state)
+Set-Location ..\iam
+terraform init -upgrade
+terraform destroy -auto-approve
+
+# 5. Root M4 AL FINAL. Destruye module.iam (ya vacío), db_password y el google_sql_user.
+Set-Location ..\..\envs\dev
+terraform destroy -auto-approve
+
+# 6. Limpieza de humo del §9.5 si la dejaste creada
+gcloud iam service-accounts delete "sa-applocker-smoke-test@$env:TF_VAR_project_id.iam.gserviceaccount.com" --project=$env:TF_VAR_project_id --quiet
+```
+
+
 ---
 
 ## 12. Recursos endurecidos (resumen)
 
 | Componente | Antes (M3) | Después (M4) |
 |---|---|---|
-| Identidad del MIG `app` | Compute Engine default SA | SA dedicada `sa-applocker-app-${env}` con 4 roles predefined |
+| Identidad del MIG `app` | Compute Engine default SA | SA dedicada `sa-app-${env}-${suffix}` con 4 roles predefined |
 | Roles IAM | `cloud-platform` (scope abierto) | Predefined roles mínimos (logging, monitoring, cloudsql.client, secretmanager.secretAccessor) |
 | Password de Cloud SQL | Variable o en el código | Secret Manager (existente) + data source + `google_sql_user` |
 | Labels | Inconsistentes | 6 labels obligatorios en todos los recursos del root + sub-stacks |
@@ -1160,7 +1165,7 @@ Dejar el workspace `dev` activo para M5.
 ## 13. Validación final (gate del formador)
 
 - [ ] `terraform plan -detailed-exitcode` devuelve exit 0 en **cada uno de los 3 stacks** (root, `compute/`, `cloudsql/`).
-- [ ] La SA `sa-applocker-app-dev` existe con los 4 bindings correctos (`logging.logWriter`, `monitoring.metricWriter`, `cloudsql.client`, `secretmanager.secretAccessor`).
+- [ ] La SA `sa-app-dev` existe con los 4 bindings correctos (`logging.logWriter`, `monitoring.metricWriter`, `cloudsql.client`, `secretmanager.secretAccessor`).
 - [ ] El secreto `applocker-db-password` está importado al state del root vía `terraform import` y tiene al menos la versión 1.
 - [ ] El smoke test de identidad: la SA `app` lee OK el secreto; la SA ad-hoc `sa-applocker-smoke-test` falla con Permission Denied.
 - [ ] El smoke test de labels: ninguna VM aparece en el filtro "sin cost-center".
