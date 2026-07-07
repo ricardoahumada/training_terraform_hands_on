@@ -497,6 +497,439 @@ resource "google_sql_user" "app" {
 
 ---
 
+## 5.10 Buenas prácticas en la definición de módulos
+
+> Principios para que un módulo sea **reusable, testeable y versionable**. Aplican tanto a módulos internos (`./modules/...`) como a módulos publicados en el registry.
+
+### Diseño y responsabilidad
+- **Un módulo, una responsabilidad**. Si describe "red", que no cree VMs; si crea "Cloud SQL", que no toque IAM de proyecto.
+- **Nombres descriptivos del dominio**, no del recurso: `cloud_sql_postgres`, no `main_db_instance`.
+- **Composable**: prefiere varios módulos pequeños que uno monolítico. Un módulo "application" debería componer `network` + `compute` + `database`.
+
+### Interfaz (variables y outputs)
+- **Variables = contrato público**. Todo lo configurable del módulo debe ser variable; nada de valores hardcodeados en `main.tf`.
+- **Tipos estrictos** (`string`, `number`, `bool`, `list(...)`, `map(object(...))`). Evita `any` salvo último recurso.
+- **Defaults sensatos** que cubran el 80% de los casos, pero sin ocultar decisiones críticas (no defaultees `project_id`, `region` o credenciales).
+- **Validación con bloques `validation`** para invariantes (formato, longitud, valores permitidos).
+- **Outputs = valor para el consumidor**. Expón identificadores (`id`, `self_link`), nombres, endpoints y connection strings, no atributos internos irrelevantes.
+- **Documenta cada variable y output** (`description` obligatorio). Es lo único que verá quien use el módulo.
+
+```hcl
+variable "tier" {
+  type        = string
+  description = "Tier de Cloud SQL. Ver https://cloud.google.com/sql/docs/pricing."
+  default     = "db-custom-2-7680"
+
+  validation {
+    condition     = can(regex("^db-custom-[0-9]+-[0-9]+$", var.tier))
+    error_message = "tier debe seguir el patrón db-custom-<cpu>-<memory_mb>."
+  }
+}
+```
+
+### Estructura de ficheros
+```
+modules/cloud-sql/
+  main.tf        # recursos
+  variables.tf   # inputs
+  outputs.tf     # outputs
+  versions.tf    # required_version + required_providers
+  README.md      # uso, requisitos, ejemplo
+  examples/
+    basic/       # ejemplo mínimo ejecutable
+    complete/    # ejemplo con todas las opciones
+```
+- **`versions.tf` siempre presente**: declara `terraform { required_version, required_providers }`. Evita el clásico "en mi máquina funciona".
+- **`README.md` generado y mantenido**: inputs/outputs autogenerados con `terraform-docs`, ejemplo funcional al inicio.
+
+### Versionado y publicación
+- **SemVer estricto**: MAJOR (cambio incompatible), MINOR (feature compatible), PATCH (bugfix).
+- **Tag Git por release**: `v1.4.2`. Nunca publiques sin tag.
+- **`CHANGELOG.md`** con breaking changes destacados.
+- **Para registry público**: tag + release en GitHub, y referencea con `version = "~> 1.4"` (no `>= 1.0`).
+- **Pin de providers** en `versions.tf` (ej. `version = "~> 6.0"`), nunca `latest`.
+
+### Testing
+- **`terraform validate`** en cada PR.
+- **`terraform plan` contra un sandbox** (proyecto efímero por PR) como integration test mínimo.
+- **`terraform test`** (1.6+) para unit tests de módulos con `mock_provider`.
+- **`tflint`** y **`checkov`** en el pipeline.
+- **Terratest** (Go) si necesitas assertions reales sobre la infraestructura desplegada.
+
+### Anti-patrones
+- ❌ Módulo que recibe la SA, crea la SA y le asigna permisos a la SA en el mismo `apply`.
+- ❌ Recursos con `name` hardcodeado (impide reutilización).
+- ❌ Módulos "Dios" que hacen de todo en un solo `apply`.
+- ❌ Mezclar recursos de **varios proveedores** en un módulo "de GCP".
+- ❌ Modificar `main.tf` después de un release sin bump de MAJOR.
+
+---
+
+## 5.11 Buenas prácticas generales de Terraform
+
+> Aplica a todo proyecto Terraform, independientemente del proveedor.
+
+### Estructura del repositorio
+```
+infra-live/
+  modules/                  # módulos reutilizables (sin state)
+    network/
+    cloud-sql/
+  envs/                     # root modules por entorno
+    dev/
+      main.tf
+      backend.tf
+      variables.tf
+      terraform.tfvars
+      providers.tf
+    staging/
+    prod/
+```
+- **Un root module por entorno** (dev/staging/prod), cada uno con su **propio state**.
+- **`backend.tf`, `providers.tf`, `variables.tf`, `main.tf`** separados por responsabilidad.
+- **`terraform.tfvars` por entorno**; **nunca** commitear secretos (usa Secret Manager o CI vars).
+
+### Versionado y proveedores
+- **`required_version`** fijado (ej. `~> 1.10`).
+- **Pin exacto de providers** en `required_providers`; usa `~>` para actualizaciones menores.
+- **Lock file** (`terraform.lock.hcl`) **commiteado** para reproducibilidad. `terraform init -upgrade` solo cuando se decide actualizar.
+
+### State y backend
+- **Remote backend siempre** (GCS, S3, Azure Storage, Terraform Cloud). Nada de state local en equipo.
+- **Versionado del bucket** activado; **soft delete / retention** si está disponible.
+- **Una cuenta/proyecto dedicado para el state** (separado del workload).
+- **Locking nativo** del backend; evita soluciones externas (DynamoDB para S3, etc.).
+- **No mezclar entornos** en el mismo state. Un `apply` de prod no debe poder tocar staging.
+
+### Variables y outputs
+- **`description` obligatorio** en cada variable y output.
+- **`type` explícito** (nunca `any` salvo para forwards compatibles).
+- **`sensitive = true`** en variables y outputs que contengan secretos; aparecerá como `***` en logs.
+- **Validación** (`validation {}`) para invariantes críticas (nombre de bucket único, formato de CIDR, region válida).
+- **Outputs mínimos**: lo que el siguiente módulo o el operador necesita, nada más.
+
+### Naming y estilo
+- **`terraform fmt`** en pre-commit y en CI.
+- **Convención de nombres**: `snake_case` para recursos, variables, outputs. `kebab-case` para nombres de buckets y recursos cloud.
+- **Convención de `name` en recursos**: incluir entorno y propósito (`prod-data-lake`, `staging-app-vm`).
+- **`count` vs `for_each`**: prefiere **`for_each` con `sets` o `maps`** (índices estables); `count` solo para crear N instancias idénticas sin identidad individual.
+- **`lifecycle`** explícito cuando aplique: `create_before_destroy`, `prevent_destroy` en producción, `ignore_changes` para atributos gestionados fuera (ej. `disk_size` autoajustado por Cloud SQL).
+
+### Seguridad
+- **Secretos fuera del código**: Secret Manager, Vault, SSM Parameter Store. Nunca en `.tfvars` commiteado.
+- **Cifrado del state**: habilita CMEK en el bucket cuando sea posible.
+- **IAM mínimo**: cada ejecución de Terraform usa una **SA dedicada con roles mínimos**, separada por entorno.
+- **`preconditions` y `postconditions`** en recursos para validar invariantes de seguridad:
+```hcl
+resource "google_storage_bucket" "data" {
+  # ...
+  lifecycle {
+    precondition {
+      condition     = contains(["EU", "US"], var.location)
+      error_message = "El bucket de datos debe residir en EU o US por compliance."
+    }
+  }
+}
+```
+
+### Operativa
+- **PRs con `terraform plan` obligado** y output en el comentario del PR.
+- **`terraform apply` desde CI**, no desde portátil (excepto labs).
+- **`-target`** solo para emergencias, **nunca** en pipelines automatizados.
+- **Drift detection**: cron job que ejecuta `terraform plan` y alerta si hay diff sin PR.
+- **Backups del state**: versioning del bucket + política de retención.
+- **`terraform state mv`** antes que `rm` + `import` cuando refactorizas.
+
+### Documentación
+- **`terraform-docs`** genera automáticamente la sección de inputs/outputs en el README del módulo.
+- **Diagrama de arquitectura** junto al root module (overview, no exhaustivo).
+- **ADRs** (Architecture Decision Records) para decisiones no triviales (por qué GCS en vez de Terraform Cloud, por qué un módulo monolítico, etc.).
+
+---
+
+## 5.12 Buenas prácticas Terraform en Google Cloud
+
+> Específicas del provider `hashicorp/google`. Complementan a las anteriores.
+
+### Provider y autenticación
+- **Pin de versión** del provider google y google-beta en `required_providers`.
+- **Variables para `project` y `region`**; nunca hardcodees el proyecto en el código.
+- **Prefiere ADC (Application Default Credentials)** en máquinas personales y **Service Accounts en CI**.
+- **SA dedicada por pipeline/entorno** con **Workload Identity Federation** (sin JSON keys de larga vida).
+- **`provider = google-beta`** solo en recursos marcados como `Beta` en la docs; no abuses.
+
+```hcl
+provider "google" {
+  project = var.project_id
+  region  = var.region
+  default_labels = {
+    managed-by = "terraform"
+    env        = var.environment
+    team       = var.team
+  }
+}
+```
+
+### Organización: proyecto, VPC y folder
+- **Project factory**: módulo que genera un proyecto GCP con VPC compartida, APIs habilitadas, IAM base y billing.
+- **Una VPC por entorno**, no compartir VPC entre prod y no-prod.
+- **Subnets por región y propósito** (`app`, `db`, `gke`). No metas app y db en la misma subnet.
+- **Private Service Access / Private Google Access** activado para hablar con APIs de Google sin salir por Internet.
+- **Cloud NAT** para egress controlado de workloads sin IP pública.
+
+### IAM y Service Accounts
+- **Principio de least privilege**: roles específicos (`roles/cloudsql.client`), nunca `roles/editor` u `roles/owner`.
+- **SA por workload**, no la default compute SA.
+- **Workload Identity** para GKE; **IAM Conditions** (`condition {}`) para acceso por horario, IP o atributo.
+- **Módulo `iam-roles`** que reciba `roles = [{role, members, condition}]` para no repetir 100 `google_project_iam_member`.
+
+```hcl
+resource "google_project_iam_member" "app_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.app.email}"
+
+  condition {
+    title       = "only-from-vpc"
+    description = "SA app solo accede desde la VPC de prod"
+    expression  = "request.resource.name == 'projects/${var.project_id}/zones/...' "
+  }
+}
+```
+
+### Storage y bases de datos
+- **`uniform_bucket_level_access = true`** en todos los buckets (excepto casos legacy justificados).
+- **Versionado activado** en buckets críticos (`data`, `tfstate`, `logs`).
+- **Lifecycle rules** explícitas: clase Standard → Nearline tras 30 días → Coldline tras 90 → Archive tras 365.
+- **Cifrado con CMEK** para datos sensibles; `encryption.default_kms_key_name` a nivel de bucket/organización.
+- **`force_destroy = false`** en buckets de producción (defensa contra `destroy` accidental).
+- **`deletion_protection`** activado en Cloud SQL y Redis.
+- **Backups automatizados** con PITR habilitado (`point_in_time_recovery_enabled`) y ventana explícita.
+- **HA Cloud SQL** regional, no zonal, salvo dev.
+
+### Compute, GKE y serverless
+- **Imágenes base oficiales** (`debian-cloud`, `cos-cloud`, `ubuntu-os-cloud`), nunca imágenes de la comunidad.
+- **Shielded VMs** (`shielded_instance_config`) en producción.
+- **Confidential VMs** para workloads sensibles.
+- **GKE Autopilot** sobre Standard salvo necesidad justificada de configurar nodos.
+- **Cloud Run con `--no-allow-unauthenticated`** + IAM; nunca expuesto público sin intención.
+- **Serverless VPC Access** para que Cloud Run/Cloud Functions alcancen recursos privados.
+
+### Redes
+- **Firewall rules en módulos reutilizables** parametrizadas por `source_ranges`, `target_tags`, `allowed_ports`.
+- **No usar `0.0.0.0/0`** salvo regla muy específica justificada y con tag restrictivo.
+- **Cloud Armor** delante de cualquier HTTP(S) Load Balancer público.
+- **Identity-Aware Proxy (IAP)** para acceso SSH/RDP sin bastion ni VPN.
+
+### Observabilidad y seguridad
+- **Labels obligatorios** (`env`, `team`, `managed-by`, `cost-center`). Úsalos vía `default_labels` en el provider.
+- **Audit logs** activados a nivel de organización para datos críticos.
+- **Security Command Center** activado; alertas a Pub/Sub gestionado por Terraform.
+- **VPC Flow Logs** en subnets de prod.
+
+### State y locking
+- **Backend `gcs`** con `uniform_bucket_level_access = true`, versioning y CMEK.
+- **Prefijos distintos por entorno** (`prod/network`, `staging/network`).
+- **Forzar `prevent_destroy`** en el state bucket: `lifecycle { prevent_destroy = true }` (sí, el state bucket merece su propio Terraform que lo gestione).
+- **`bucket_policy_only` y `iam_configuration`** del bucket de state gestionados con cuidado.
+
+### Limitaciones a recordar
+- **`terraform import` no escribe el HCL** completo; complétalo manualmente.
+- **Drift detection en CI** es obligatorio: GCP cambia recursos fuera de Terraform (autoscaler, IAM manual).
+- **Recursos beta** pueden cambiar su schema entre versiones del provider; revisa el CHANGELOG antes de upgrade.
+- **`google-beta`** introduce cambios incompatibles más a menudo que `google`; evita pincharte con él en producción.
+
+---
+
+## 5.13 Terraform test (`terraform test`, nativamente)
+
+> Framework de testing **nativo de Terraform** (estable desde 1.6). Complementa a `validate`, `tflint` y `checkov`, y es la opción recomendada para **unit tests de módulos** sin salir de HCL.
+
+### Por qué importa
+- Hasta 1.6 los tests de módulos requerían **Terratest (Go)** o **kitchen-terraform (Ruby)**: dependencias pesadas, runner externo, curva de aprendizaje alta.
+- `terraform test` corre con el propio binario de Terraform, usa sintaxis `.tftest.hcl`, soporta **mocks** y se ejecuta en segundos.
+- No despliega infraestructura real → barato, idempotente, seguro en CI.
+
+### Estructura recomendada en un módulo
+```
+modules/cloud-sql/
+  main.tf
+  variables.tf
+  outputs.tf
+  versions.tf
+  tests/
+    basic.tftest.hcl
+    defaults.tftest.hcl
+    validation.tftest.hcl
+    network.tftest.hcl
+```
+
+### Anatomía de un test
+
+```hcl
+# tests/basic.tftest.hcl
+
+run "creates_cloud_sql_instance" {
+  command = plan   # o apply (requiere credenciales)
+
+  variables {
+    project_id = "test-project"
+    region     = "europe-west1"
+    name       = "app-db"
+    tier       = "db-custom-2-7680"
+  }
+
+  # Assertions sobre el plan
+  assert {
+    condition     = google_sql_database_instance.main.name == "app-db"
+    error_message = "El nombre de la instancia debe coincidir con el input."
+  }
+
+  assert {
+    condition     = google_sql_database_instance.main.settings[0].tier == "db-custom-2-7680"
+    error_message = "El tier debe propagarse al bloque settings."
+  }
+}
+```
+
+### Tres modos de ejecución
+
+| Modo | Qué hace | Credenciales |
+|---|---|---|
+| `command = plan` | Genera el plan y valida assertions **sin hablar con la API**. | **No requiere.** Es el modo por defecto en CI. |
+| `command = apply` | Aplica el módulo, valida outputs y destruye al final. | Sí (SA con permisos sobre los recursos creados). |
+| `command = refresh` | Actualiza el state contra la infraestructura real. | Sí. |
+
+> Regla práctica: usa `plan` para la mayoría de tests; reserva `apply` para casos donde necesitas verificar atributos **post-provisión** (ej. URL autogenerada, IP asignada).
+
+### Mocks de providers y recursos
+
+Cuando un módulo depende de recursos que **no quieres crear** (un proyecto, una red, una imagen):
+
+```hcl
+# tests/network.tftest.hcl
+
+mock_provider "google" {
+  mock_data "google_compute_network" {
+    defaults = {
+      self_link = "projects/test-project/global/networks/mock-vpc"
+    }
+  }
+
+  mock_resource "google_compute_subnetwork" {
+    defaults = {
+      self_link = "projects/test-project/regions/europe-west1/subnetworks/mock-subnet"
+    }
+  }
+}
+
+run "creates_instance_in_subnet" {
+  command = plan
+
+  variables {
+    project_id = "test-project"
+    region     = "europe-west1"
+    name       = "app-db"
+    network    = "projects/test-project/global/networks/mock-vpc"
+  }
+
+  assert {
+    condition     = strcontains(google_sql_database_instance.main.settings[0].ip_configuration[0].private_network, "mock-vpc")
+    error_message = "La instancia debe asociarse a la red mockeada."
+  }
+}
+```
+
+Y para **mockear módulos completos**:
+
+```hcl
+mock_provider "google" {}
+
+mock_resource "google_compute_network" {
+  defaults = { self_link = "mock-vpc" }
+}
+
+# Reemplaza un módulo entero por valores fijos
+override_module {
+  target = module.network
+  outputs = {
+    vpc_id   = "mock-vpc"
+    subnet_id = "mock-subnet"
+  }
+}
+```
+
+### Assertions más habituales
+
+```hcl
+# Outputs esperados
+assert {
+  condition     = output.connection_name != ""
+  error_message = "El output connection_name no puede estar vacío."
+}
+
+# Validaciones bloqueadas (variable validation)
+assert {
+  condition     = length(tfrun.variables) > 0
+  error_message = "Debe haber variables declaradas."
+}
+
+# Cantidad de recursos
+assert {
+  condition     = length(google_sql_database.users) == 2
+  error_message = "Deben crearse exactamente 2 usuarios SQL."
+}
+
+# Labels obligatorios
+assert {
+  condition     = google_sql_database_instance.main.settings[0].user_labels["managed-by"] == "terraform"
+  error_message = "Falta el label managed-by=terraform."
+}
+```
+
+### Buenas prácticas con `terraform test`
+
+- **Un archivo `.tftest.hcl` por escenario**, no un megafichero con 30 `run`.
+- **Nombres descriptivos de `run`**: `run "validates_tier_pattern"` > `run "test1"`.
+- **Combina con `validation` blocks**: testea también que las validaciones rechacen inputs inválidos.
+- **`command = plan` por defecto**; usa `apply` solo cuando no puedas asserts en plan (atributos computados).
+- **Mocks explícitos** para proveedores de datos y recursos de los que depende el módulo pero no quieres crear.
+- **Ejecuta en CI** junto a `fmt`, `validate`, `tflint`, `checkov`. Pipeline típico:
+  ```yaml
+  - terraform fmt -check -recursive
+  - terraform init -backend=false
+  - terraform validate
+  - terraform test
+  - tflint --recursive
+  - checkov -d .
+  ```
+- **Cobertura mínima útil**: inputs obligatorios, defaults, combinación con módulos mockeados, validación de variables.
+- **No reemplaza Terratest**: para tests de integración reales (latencias, conectividad, seguridad) sigue necesitando Terratest o tests con `apply` contra un sandbox efímero.
+
+### Depuración y ejecución
+
+```bash
+# Ejecutar todos los tests de un módulo
+terraform test
+
+# Filtrar por archivo
+terraform test -filter=tests/basic.tftest.hcl
+
+# Verbose (muestra plan + valores de variables)
+terraform test -verbose
+
+# Modo JSON (para integraciones con CI / reporters)
+terraform test -json
+```
+
+### Limitaciones a recordar
+- Los `assert` evalúan **el plan o el apply**; no son tests funcionales del recurso desplegado.
+- `mock_provider` **no valida** la API real — un plan con mocks puede ser válido pero el apply fallar.
+- **`command = apply` deja residuos** si el cleanup falla. Aíslalo siempre en un proyecto/sandbox.
+- Para tests cross-module con **state compartido**, sigue siendo mejor Terratest.
+
+---
+
 ## 6. Referencias
 
 ### Documentación oficial
