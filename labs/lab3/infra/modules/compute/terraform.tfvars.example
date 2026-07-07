@@ -1,0 +1,8 @@
+project_id = "my-gcp-project-dev"
+region     = "us-central1"
+env        = "dev"
+
+# Obtener tras `terraform apply` en network:
+#   terraform -chdir=../network output -json | jq -r .vpc_self_link.value
+network_self_link    = "projects/my-gcp-project-dev/global/networks/applocker-vpc-dev"
+subnet_app_self_link = "projects/my-gcp-project-dev/regions/us-central1/subnetworks/applocker-app-sn-dev"

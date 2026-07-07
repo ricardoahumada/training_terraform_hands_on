@@ -1,0 +1,6 @@
+# Sustituir <sufijo> por el sufijo real del bucket GCS creado en M1.
+# Cargar con: terraform plan -var-file=terraform.tfvars.example
+
+project_id = "my-gcp-project-dev"
+region     = "us-central1"
+env        = "dev"
