@@ -148,14 +148,8 @@ Set-Location infra\modules\compute
 # Validar que el recurso existe en ESTE state antes de apuntar -target.
 # Si no aparece, skip directo al `terraform destroy` general.
 #
-# IMPORTANTE PowerShell: `terraform state list` emite objetos, no strings.
-# `Select-String -Pattern` por pipeline falla con "InputObjectNotBound".
-# Hay que forzar la conversión a string con `Out-String` (o `| %{ $_ }`).
 $resourceAddress = 'google_compute_resource_policy.backend_snapshot'
 if (terraform state list | Out-String | Select-String -Pattern ([regex]::Escape($resourceAddress))) {
-  # PowerShell: usar espacio, no '='. La forma -target=valor falla con
-  # "Too many command line arguments" en algunas versiones de Terraform
-  # porque PowerShell expande '=' antes de pasar argumentos al proceso.
   terraform destroy -target $resourceAddress -auto-approve
 }
 terraform destroy -auto-approve
