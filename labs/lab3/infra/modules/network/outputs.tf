@@ -24,5 +24,6 @@ output "nat_name" {
 }
 
 output "private_ip_range_name" {
-  value = google_compute_global_address.private_ip_range.name
+  # value = google_compute_global_address.private_ip_range.name
+  value = module.peering.private_ip_range_name
 }

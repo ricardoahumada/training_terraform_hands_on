@@ -1,6 +1,6 @@
 terraform {
   backend "gcs" {
-    bucket = "applocker-tf-state-<sufijo>"
+    bucket = "applocker-tf-state-ricenmotion"
     prefix = "modules/network"
   }
 }

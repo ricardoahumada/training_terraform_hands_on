@@ -6,7 +6,7 @@ terraform {
       version = "~> 5.0"
     }
   }
-  
+
 }
 
 provider "google" {
@@ -150,18 +150,29 @@ resource "google_compute_firewall" "ssh_iap" {
   }
 }
 
-# --- Peering con services (Cloud SQL private IP) ---
 
-resource "google_compute_global_address" "private_ip_range" {
-  name          = "applocker-private-ip-range-${var.env}-${var.sufijo}"
-  purpose       = "VPC_PEERING"
-  address_type  = "INTERNAL"
-  prefix_length = 16
-  network       = google_compute_network.applocker.id
-}
 
-resource "google_service_networking_connection" "private_vpc" {
-  network                 = google_compute_network.applocker.id
-  service                 = "servicenetworking.googleapis.com"
-  reserved_peering_ranges = [google_compute_global_address.private_ip_range.name]
+# # --- Peering con services (Cloud SQL private IP) ---
+
+# resource "google_compute_global_address" "private_ip_range" {
+#   name          = "applocker-private-ip-range-${var.env}-${var.sufijo}"
+#   purpose       = "VPC_PEERING"
+#   address_type  = "INTERNAL"
+#   prefix_length = 16
+#   network       = google_compute_network.applocker.id
+# }
+
+# resource "google_service_networking_connection" "private_vpc" {
+#   network                 = google_compute_network.applocker.id
+#   service                 = "servicenetworking.googleapis.com"
+#   reserved_peering_ranges = [google_compute_global_address.private_ip_range.name]
+# }
+
+module "peering" {
+  source     = "./peering"
+  project_id = var.project_id
+  region     = var.region
+  env        = var.env
+  name       = "applocker-private-ip-range-${var.env}-${var.sufijo}"
+  network    = google_compute_network.applocker.id
 }
