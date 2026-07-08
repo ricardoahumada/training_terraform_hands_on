@@ -32,6 +32,9 @@ locals {
   )
 
   tf_state_bucket = "applocker-tf-state-${var.sufijo}"
+
+  common_labels = data.terraform_remote_state.root.outputs.common_labels
+
 }
 
 # --- Remote state del módulo network ---
@@ -44,6 +47,13 @@ data "terraform_remote_state" "network" {
   }
 }
 
+data "terraform_remote_state" "root" {
+  backend = "gcs"
+  config = {
+    bucket = "applocker-tf-state-ricenmotion"
+    prefix = "envs/dev/root"
+  }
+}
 
 # --- Backend instance template ---
 
@@ -64,14 +74,21 @@ resource "google_compute_instance_template" "backend" {
 
   tags = ["app"]
 
+  service_account {
+    email  = data.terraform_remote_state.root.outputs.app_service_account_email
+    scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+
   metadata_startup_script = <<-EOT
     #!/bin/bash
     docker-credential-gcr configure-docker --quiet
   EOT
 
-  labels = {
-    tier = "app"
-  }
+  # labels = {
+  #   tier = "app"
+  # }
+
+  labels = merge(local.common_labels, { tier = "app" }) # tier = "app" (no "backend"), alineado con M3
 
   lifecycle {
     create_before_destroy = true

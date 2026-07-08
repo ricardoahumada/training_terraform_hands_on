@@ -55,7 +55,7 @@ module "cloudsql" {
   database_version  = "POSTGRES_15"
   private_network   = local.vpc_self_link
 
-  deletion_protection = true
+  deletion_protection = false
 
   depends_on = [data.terraform_remote_state.network]
 }

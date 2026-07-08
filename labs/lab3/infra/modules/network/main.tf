@@ -92,17 +92,98 @@ resource "google_compute_router_nat" "applocker" {
 
 # --- Reglas de firewall por tags (zero-trust) ---
 
-resource "google_compute_firewall" "app_to_mw" {
-  name      = "applocker-app-to-mw-${var.env}-${var.sufijo}"
-  network   = google_compute_network.applocker.id
-  direction = "INGRESS"
+# resource "google_compute_firewall" "app_to_mw" {
+#   name      = "applocker-app-to-mw-${var.env}-${var.sufijo}"
+#   network   = google_compute_network.applocker.id
+#   direction = "INGRESS"
 
-  source_tags = ["app"]
-  target_tags = ["middleware"]
+#   source_tags = ["app"]
+#   target_tags = ["middleware"]
 
-  allow {
-    protocol = "tcp"
-    ports    = ["8080"]
+#   allow {
+#     protocol = "tcp"
+#     ports    = ["8080"]
+#   }
+
+#   log_config {
+#     metadata = "INCLUDE_ALL_METADATA"
+#   }
+# }
+
+# resource "google_compute_firewall" "mw_to_lock" {
+#   name    = "applocker-mw-to-lock-${var.env}-${var.sufijo}"
+#   network = google_compute_network.applocker.id
+
+#   source_tags = ["middleware"]
+#   target_tags = ["lock"]
+
+#   allow {
+#     protocol = "tcp"
+#     ports    = ["9000"]
+#   }
+# }
+
+# resource "google_compute_firewall" "lock_to_data" {
+#   name    = "applocker-lock-to-data-${var.env}-${var.sufijo}"
+#   network = google_compute_network.applocker.id
+
+#   source_tags = ["lock"]
+#   target_tags = ["data"]
+
+#   allow {
+#     protocol = "tcp"
+#     ports    = ["5432"]
+#   }
+# }
+
+locals {
+  firewall_rules = {
+    allow_app_to_mw = {
+      description = "App tier to Middleware (8080)"
+      source_tags = ["app"]
+      target_tags = ["middleware"]
+      ports       = ["8080"]
+    }
+    allow_mw_to_lock = {
+      description = "Middleware to Locker Mgmt (9000)"
+      source_tags = ["middleware"]
+      target_tags = ["lock"]
+      ports       = ["9000"]
+    }
+    allow_lock_to_data = {
+      description = "Locker Mgmt to Cloud SQL (5432)"
+      source_tags = ["lock"]
+      target_tags = ["data"]
+      ports       = ["5432"]
+    }
+    # NUEVO en M6: regla hacia Redis
+    allow_middleware_to_redis = {
+      description = "Middleware to Redis cache (6379)"
+      source_tags = ["middleware"]
+      target_tags = ["data"]   # las instancias Redis están en la subnet data
+      ports       = ["6379"]
+    }
+  }
+}
+
+resource "google_compute_firewall" "applocker" {
+  for_each = local.firewall_rules
+
+  project     = var.project_id
+  name        = "applocker-${replace(each.key, "_", "-")}-${var.env}-${var.sufijo}"
+  network     = google_compute_network.applocker.id
+  description = each.value.description
+  direction   = "INGRESS"
+
+  source_tags = each.value.source_tags
+  target_tags = each.value.target_tags
+
+  dynamic "allow" {
+    for_each = each.value.ports
+    content {
+      protocol = "tcp"
+      ports    = [allow.value]
+    }
   }
 
   log_config {
@@ -110,31 +191,6 @@ resource "google_compute_firewall" "app_to_mw" {
   }
 }
 
-resource "google_compute_firewall" "mw_to_lock" {
-  name    = "applocker-mw-to-lock-${var.env}-${var.sufijo}"
-  network = google_compute_network.applocker.id
-
-  source_tags = ["middleware"]
-  target_tags = ["lock"]
-
-  allow {
-    protocol = "tcp"
-    ports    = ["9000"]
-  }
-}
-
-resource "google_compute_firewall" "lock_to_data" {
-  name    = "applocker-lock-to-data-${var.env}-${var.sufijo}"
-  network = google_compute_network.applocker.id
-
-  source_tags = ["lock"]
-  target_tags = ["data"]
-
-  allow {
-    protocol = "tcp"
-    ports    = ["5432"]
-  }
-}
 
 # SSH por IAP para los 3 tiers
 resource "google_compute_firewall" "ssh_iap" {
